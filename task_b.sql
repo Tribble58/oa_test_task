@@ -29,7 +29,7 @@ with all_transfers as (
      first_5_days AS (
          -- Вычисляем лаг уникальных адресов по датам
          select transfer_date,
-                new_unique_addresses                                                 as current_day_unique_addresses,
+                new_unique_addresses                                                 as "current_day_unique_addresses",
                 coalesce(lag(new_unique_addresses) over (order by transfer_date), 0) as previous_day_unique_addresses,
                 new_unique_addresses -
                 coalesce(lag(new_unique_addresses) over (order by transfer_date), 0) as difference
@@ -39,11 +39,11 @@ with all_transfers as (
      first_5_days_alt AS (
          -- Альтернативное решение через self join
          select a.transfer_date,
-                a.new_unique_addresses                           as current_day_unique_addresses_alt,
-                a1.new_unique_addresses                          as previous_day_unique_addresses_alt,
-                a.new_unique_addresses = a1.new_unique_addresses as difference_alt
+                a.new_unique_addresses                                        as "current_day_unique_addresses_alt",
+                a1.new_unique_addresses                                       as previous_day_unique_addresses_alt,
+                a.new_unique_addresses - coalesce(a1.new_unique_addresses, 0) as difference_alt
          from daily_new_addresses a
-                  join daily_new_addresses a1 on a.transfer_date = a1.transfer_date - interval '1 days'
+                  left join daily_new_addresses a1 on a.transfer_date = a1.transfer_date + interval '1 days'
          order by a.transfer_date
          limit 5),
      top_address as (
@@ -53,36 +53,28 @@ with all_transfers as (
                              where quantity >= 0.2 * 1e18
                                and block_number <= 21600000 -- Только до блока 21600000
                              group by receiver, t_hash)
-         select receiver as top_address, t_hash as hash, total
+         select receiver as top_address, t_hash as hash, total / 1e18 as total
          from max_holder
          order by total desc
          limit 1)
 
 -- Выводим результаты всех запросов в одном месте
-select '1. unique_receivers'    as name,
-       count(distinct receiver) as value
+select '1. unique_receivers'          as name,
+       count(distinct receiver)::text as value
 from all_transfers
 union
-select '2. max_new_addresses_date' as name,
-       max_new_addresses_date      as value
+select '2. max_new_addresses_date'                                                             as name,
+       'Date: ' || max_new_addresses_date::text || ', Count:' || max_new_addresses_count::text as value
 from max_new_addresses
 union
-select '2. max_new_addresses_count' as name,
-       max_new_addresses_count      as value
-from max_new_addresses
-union
-select '3. first_5_days_difference' as name,
-       difference                   as value
+select '3. first_5_days_difference'                                                             as name,
+       'Date: ' || transfer_date::text || ', Difference with previous day:' || difference::text as value
 from first_5_days
 union
-select '4. first_5_days_difference_alternative' as name,
-       difference_alt                           as value
+select '4. first_5_days_difference_alternative'                                                     as name,
+       'Date: ' || transfer_date::text || ', Difference with previous day:' || difference_alt::text as value
 from first_5_days_alt
 union
-select '5. top_address' as name,
-       top_address      as value
-from top_address
-union
-select '5. top_address_total' as name,
-       total                  as value
+select '5. top_address'                                                                                     as name,
+       'Top address: ' || top_address::text || ', top transaction hash: ' || hash || ',  amount: ' || total as value
 from top_address;
